@@ -264,3 +264,156 @@ Mã SQL:
 
 <img width="960" height="540" alt="{78518DAD-C447-4804-8AFE-9C56A01189D9}" src="https://github.com/user-attachments/assets/bec0df2d-5a62-4dda-8adc-3df3485c2187" />
 
+Phần 4: Trigger và Xử lý logic nghiệp vụ (Kiến thức 11)
+
+4.1. Khái niệm và mục đích của Trigger
+
+Trigger là gì? Là một khối lệnh SQL tự động thực thi khi có sự kiện INSERT, UPDATE hoặc DELETE xảy ra trên một bảng cụ thể.
+
+Mục đích: Dùng để tự động hóa các nghiệp vụ liên quan giữa các bảng, đảm bảo tính toàn vẹn dữ liệu mà các ràng buộc (Constraints) thông thường không xử lý được.
+
+4.2. Viết Trigger tự động cập nhật số dư (Logic thực tế)
+
+ Yêu cầu: Mỗi khi có giao dịch mới (INSERT) vào bảng GiaoDich, hệ thống sẽ tự động trừ số dư tiền của người dùng trong bảng NguoiDung.
+
+    Mã SQL:
+
+    CREATE TRIGGER trg_CapNhatSoDu
+    ON [GiaoDich]
+    AFTER INSERT
+    AS
+    BEGIN
+    UPDATE [NguoiDung]
+    SET [SoDu] = [NguoiDung].[SoDu] - g.[GiaTien]
+    FROM [NguoiDung] n
+    JOIN inserted i ON n.[MaND] = i.[MaND]
+    JOIN [GoiNap] g ON i.[MaGoi] = g.[MaGoi];
+    
+    PRINT N'Đã tự động cập nhật giảm số dư người dùng.';
+    END;
+
+<img width="960" height="540" alt="{6B96B888-80C4-47C2-ADE4-39C48F1E2A6E}" src="https://github.com/user-attachments/assets/b37c730c-56a4-4507-9349-811054f3b0c1" />
+
+4.3. Thử nghiệm Trigger vòng lặp (Recursive Trigger)
+
+Yêu cầu: Thử nghiệm tạo 2 Trigger tác động qua lại lẫn nhau giữa bảng A và bảng B để quan sát hiện tượng.
+
+Bước 1: Đã có Trigger trên bảng GiaoDich cập nhật bảng NguoiDung (ở mục 4.2).
+
+Bước 2: Viết thêm Trigger trên bảng NguoiDung cập nhật ngược lại bảng GiaoDich.
+
+Mã SQL tạo Trigger vòng lặp:
+
+
+    CREATE TRIGGER trg_NguocLai
+    ON [NguoiDung]
+    AFTER UPDATE
+    AS
+    BEGIN
+    UPDATE [GiaoDich] SET [NgayGD] = GETDATE() 
+    WHERE [MaND] IN (SELECT [MaND] FROM inserted);
+    
+    PRINT N'Trigger bảng B đang tác động ngược lại bảng A...';
+    END;
+
+<img width="960" height="540" alt="{301314EE-3DD5-4317-A162-B1D2DB642848}" src="https://github.com/user-attachments/assets/9dd25c21-e8a7-4f08-b68a-38e47a797470" />
+
+
+4.4. Quan sát và Giải thích hiện tượng
+
+Thực hiện lệnh kiểm tra:
+
+    INSERT INTO [GiaoDich] (MaND, MaGoi, NgayGD) VALUES (1, 1, GETDATE());
+
+
+<img width="960" height="540" alt="{B1623F13-6ACF-4503-89E3-AE87CBB389C4}" src="https://github.com/user-attachments/assets/d52a6f0e-a116-4c3c-9b2b-2ba85980c075" />
+
+Kết quả quan sát từ hình ảnh
+Khi thực hiện lệnh INSERT vào bảng GiaoDich, trong phần Messages chúng ta thấy các thông báo xuất hiện xen kẽ nhau:
+
+"Trigger bảng B đang tác động ngược lại bảng A..."
+
+"Đã tự động cập nhật giảm số dư người dùng."
+
+Giải thích hiện tượng:
+
+Thông báo này minh chứng cho việc Trigger lồng nhau (Nested Triggers) đang hoạt động.
+
+khi Insert vào bảng A, Trigger A gọi bảng B. Ngay sau đó, Trigger trên bảng B lại kích hoạt và gọi ngược lại bảng A.
+
+Mặc dù trong hình ảnh chưa đạt đến giới hạn lỗi (Max nesting level), nhưng nó cho thấy luồng dữ liệu đang bị chạy quẩn giữa hai bảng. Nếu logic này không có điểm dừng hoặc dữ liệu lớn hơn, nó sẽ dẫn đến lỗi Recursive Trigger và làm treo tiến trình giao dịch.
+
+
+Giải thích: Khi bảng A thay đổi, nó gọi Trigger cập nhật bảng B. Khi bảng B thay đổi, nó lại gọi Trigger cập nhật ngược lại bảng A. Quá trình này tạo thành một vòng lặp vô tận. SQL Server sẽ tự động ngắt sau 32 lần lặp để tránh treo hệ thống.
+
+4.5. Nhận xét cuối cùng
+
+Việc thiết kế Trigger cần hết sức cẩn thận để tránh hiện tượng đệ quy (Recursive).
+
+Nếu logic nghiệp vụ quá phức tạp và cần tác động qua lại nhiều bảng, nên sử dụng Stored Procedure để thay thế nhằm kiểm soát luồng dữ liệu tốt hơn và dễ bảo trì hơn.
+
+Phần 5: Cursor và Duyệt dữ liệu (Kiến thức 11)
+5.1. Sử dụng CURSOR để xử lý dữ liệu
+
+Logic đặt ra: Duyệt qua danh sách các gói nạp trong bảng GoiNap. Nếu gói nạp có giá tiền lớn hơn 100,000 thì in ra thông báo phân loại là "Gói Cao Cấp", ngược lại in ra "Gói Phổ Thông".
+
+Mã SQL sử dụng Cursor:
+
+    DECLARE @TenGoi NVARCHAR(100);
+    DECLARE @Gia MONEY;
+
+-- 1. Khai báo Cursor
+    DECLARE cur_GoiNap CURSOR FOR 
+    SELECT TenGoi, GiaTien FROM [GoiNap];
+
+-- 2. Mở Cursor
+    OPEN cur_GoiNap;
+
+-- 3. Duyệt qua từng bản ghi
+    FETCH NEXT FROM cur_GoiNap INTO @TenGoi, @Gia;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+    IF @Gia > 100000
+        PRINT N'Gói: ' + @TenGoi + N' - Phân loại: Gói Cao Cấp';
+    ELSE
+        PRINT N'Gói: ' + @TenGoi + N' - Phân loại: Gói Phổ Thông';
+
+    FETCH NEXT FROM cur_GoiNap INTO @TenGoi, @Gia;
+    END;
+
+-- 4. Đóng và Giải phóng Cursor
+    CLOSE cur_GoiNap;
+    DEALLOCATE cur_GoiNap;
+
+<img width="960" height="540" alt="{0729C999-F507-424E-9F74-7FDAFA2AAD9D}" src="https://github.com/user-attachments/assets/ca24d259-9997-4fb8-92f1-83d7bec5c017" />
+
+
+5.2. Giải quyết bài toán không dùng CURSOR (Set-based)
+
+Trong SQL Server, chúng ta có thể dùng lệnh SELECT kết hợp với biểu thức CASE WHEN để giải quyết bài toán trên một cách tối ưu hơn.
+
+    Mã SQL:
+
+
+    SELECT TenGoi, GiaTien,
+       CASE 
+           WHEN GiaTien > 100000 THEN N'Gói Cao Cấp'
+           ELSE N'Gói Phổ Thông'
+       END AS PhanLoai
+    FROM [GoiNap];
+
+So sánh tốc độ và hiệu năng:
+
+Thời gian xử lý: Khi thực hiện trên tập dữ liệu lớn, cách dùng SELECT (Set-based) luôn nhanh hơn nhiều so với CURSOR.
+
+ Nguyên nhân: Cursor phải xử lý tuần tự từng dòng (Row-by-row), tốn tài nguyên bộ nhớ. Trong khi đó, SQL Server được tối ưu để xử lý theo tập hợp dữ liệu (Set-based), giúp thực thi lệnh gần như tức thì.
+
+<img width="960" height="540" alt="{BF099A95-E5A4-4DF7-95F5-6CFCE5F2DF54}" src="https://github.com/user-attachments/assets/2e06c96b-ebf2-4101-b6e1-1cb2092de2f7" />
+
+
+5.3. Bài toán chỉ CURSOR mới giải quyết hiệu quả
+
+Theo logic suy nghĩ của em, có những trường hợp đặc biệt mà SQL thuần rất khó giải quyết hiệu quả bằng lệnh SELECT, ví dụ: Gửi thông báo cá nhân hóa cho từng khách hàng qua hệ thống bên ngoài.
+
+ Lý do: Khi cần gọi một Store Procedure hệ thống (như gửi Email qua sp_send_dbmail) hoặc thực thi các câu lệnh từ thư viện bên ngoài cho từng dòng dữ liệu riêng biệt, chúng ta bắt buộc phải dùng CURSOR. Việc xử lý theo tập hợp (Set-based) của SQL thuần không hỗ trợ thực hiện các lệnh đơn lẻ mang tính tuần tự này cho từng khách hàng một cách độc lập được.
